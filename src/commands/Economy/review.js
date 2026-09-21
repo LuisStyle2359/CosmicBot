@@ -82,7 +82,6 @@ export default {
         }
 
         const reviews = loadReviews();
-
         const guildId = interaction.guild.id;
         const userId = interaction.user.id;
 
@@ -100,15 +99,20 @@ export default {
 
         const stars = interaction.options.getInteger('stars');
 
+        // Literal stars
+        const starRating = '⭐'.repeat(stars);
+
         const embed = new EmbedBuilder()
             .setColor(0xd81cde)
-            .setDescription(
-                `**${stars}/5 Stars**\n` +
-                `${'⭐'.repeat(stars)}${'☆'.repeat(5 - stars)}\n\n` +
-                `**Reviewed by:** ${interaction.user}`
-            )
+
+            // Photo first
             .setImage(REVIEW_IMAGE_URL)
-            .setTimestamp();
+
+            // Stars + reviewer underneath
+            .setDescription(
+                `${starRating}\n\n` +
+                `**Reviewed by:** ${interaction.user}`
+            );
 
         let reviewChannel;
 
@@ -149,7 +153,7 @@ export default {
             });
         }
 
-        // Save customer review permanently.
+        // Customers are saved permanently.
         // Admins can review unlimited times.
         if (!isAdmin) {
             reviews[guildId].push(userId);
