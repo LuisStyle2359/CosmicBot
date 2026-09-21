@@ -2,6 +2,7 @@ import {
     SlashCommandBuilder,
     PermissionFlagsBits,
     ChannelType,
+    WebhookClient,
 } from 'discord.js';
 
 import fs from 'node:fs';
@@ -48,74 +49,69 @@ function formatRobux(amount) {
 }
 
 /*
- * Creates the default embed.
+ * Default embed.
  *
- * IMPORTANT:
- * After you customize the message through Discohook,
- * the bot will preserve the embed instead of rebuilding it.
+ * This is only used when the stock message is first created.
+ * After that, the bot reads the existing embed and preserves
+ * your Discohook design.
  */
-function createDefaultEmbed(stock) {
+function createDefaultEmbed(amount) {
     return {
         color: 0xd81cde,
+
         title: '💎 Cosmic Robux Stock',
+
         description:
-            `### 🟢 ${formatRobux(stock.amount)} Robux Available\n\n` +
-            `📦 **Status:** ${stock.amount > 0 ? 'In Stock' : 'Out of Stock'}`,
+            `### 🟢 ${formatRobux(amount)} Robux Available\n\n` +
+            `📦 **Status:** ${amount > 0 ? 'In Stock' : 'Out of Stock'}`,
+
         footer: {
             text: 'Cosmic Market',
         },
+
         timestamp: new Date().toISOString(),
     };
 }
 
 /*
- * Updates ONLY the stock information inside the existing embed.
+ * Update ONLY the stock information.
  *
- * Everything else — title, color, images, fields, footer, etc.
- * — is preserved.
+ * Everything else from the Discohook embed stays intact.
  */
-function updateStockInEmbed(existingEmbeds, amount) {
-    if (!existingEmbeds || existingEmbeds.length === 0) {
-        return [createDefaultEmbed({
-            amount,
-        })];
+function updateStockEmbed(embeds, amount) {
+    if (!embeds || embeds.length === 0) {
+        return [createDefaultEmbed(amount)];
     }
 
-    const embed = structuredClone(existingEmbeds[0]);
+    const embed = structuredClone(embeds[0]);
 
-    const stockText =
+    const newStockText =
         `### 🟢 ${formatRobux(amount)} Robux Available\n\n` +
         `📦 **Status:** ${amount > 0 ? 'In Stock' : 'Out of Stock'}`;
 
     /*
-     * If the description contains our old stock text,
-     * replace it while preserving the rest of the description.
+     * Find our stock section if it still exists.
      */
-    if (typeof embed.description === 'string') {
-        const stockRegex =
-            /### 🟢 [\d,]+ Robux Available\n\n📦 \*\*Status:\*\* (?:In Stock|Out of Stock)/;
+    const stockRegex =
+        /### 🟢 [\d,]+ Robux Available\n\n📦 \*\*Status:\*\* (?:In Stock|Out of Stock)/;
 
+    if (typeof embed.description === 'string') {
         if (stockRegex.test(embed.description)) {
             embed.description = embed.description.replace(
                 stockRegex,
-                stockText
+                newStockText
             );
         } else {
             /*
-             * If Discohook changed the description completely,
-             * don't destroy it. Add the current stock underneath.
+             * If you completely changed the description in Discohook,
+             * preserve it and add the stock underneath.
              */
-            embed.description =
-                `${embed.description}\n\n${stockText}`;
+            embed.description += `\n\n${newStockText}`;
         }
     } else {
-        embed.description = stockText;
+        embed.description = newStockText;
     }
 
-    /*
-     * Update Discord's timestamp so users can see
-     * when the stock was changed.
-     */
     embed.timestamp = new Date().toISOString();
 
     return [embed];
@@ -125,63 +121,91 @@ export default {
     data: new SlashCommandBuilder()
         .setName('robux')
         .setDescription('Manage the Robux stock')
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+        .setDefaultMemberPermissions(
+            PermissionFlagsBits.ManageGuild
+        )
         .setDMPermission(false)
 
+        // =========================
         // /robux setup
+        // =========================
         .addSubcommand(subcommand =>
             subcommand
                 .setName('setup')
                 .setDescription('Set up the Robux stock message')
+
                 .addChannelOption(option =>
                     option
                         .setName('channel')
-                        .setDescription('Channel where the stock will be displayed')
-                        .addChannelTypes(ChannelType.GuildText)
+                        .setDescription(
+                            'Channel where the stock will be displayed'
+                        )
+                        .addChannelTypes(
+                            ChannelType.GuildText
+                        )
                         .setRequired(true)
                 )
+
                 .addIntegerOption(option =>
                     option
                         .setName('amount')
-                        .setDescription('Current amount of Robux in stock')
+                        .setDescription(
+                            'Current amount of Robux in stock'
+                        )
                         .setMinValue(0)
                         .setRequired(true)
                 )
         )
 
+        // =========================
         // /robux add
+        // =========================
         .addSubcommand(subcommand =>
             subcommand
                 .setName('add')
                 .setDescription('Add Robux to the stock')
+
                 .addIntegerOption(option =>
                     option
                         .setName('amount')
-                        .setDescription('Amount of Robux to add')
+                        .setDescription(
+                            'Amount of Robux to add'
+                        )
                         .setMinValue(1)
                         .setRequired(true)
                 )
         )
 
+        // =========================
         // /robux remove
+        // =========================
         .addSubcommand(subcommand =>
             subcommand
                 .setName('remove')
-                .setDescription('Remove Robux from the stock')
+                .setDescription(
+                    'Remove Robux from the stock'
+                )
+
                 .addIntegerOption(option =>
                     option
                         .setName('amount')
-                        .setDescription('Amount of Robux to remove')
+                        .setDescription(
+                            'Amount of Robux to remove'
+                        )
                         .setMinValue(1)
                         .setRequired(true)
                 )
         )
 
+        // =========================
         // /robux stock
+        // =========================
         .addSubcommand(subcommand =>
             subcommand
                 .setName('stock')
-                .setDescription('Show the current Robux stock')
+                .setDescription(
+                    'Show the current Robux stock'
+                )
         ),
 
     category: 'Economy',
@@ -189,9 +213,13 @@ export default {
     async execute(interaction) {
         const data = loadData();
         const guildId = interaction.guildId;
-        const subcommand = interaction.options.getSubcommand();
+        const subcommand =
+            interaction.options.getSubcommand();
 
-        // Permission check
+        // =========================
+        // PERMISSION
+        // =========================
+
         if (
             !interaction.memberPermissions?.has(
                 PermissionFlagsBits.ManageGuild
@@ -215,29 +243,56 @@ export default {
             const amount =
                 interaction.options.getInteger('amount');
 
-            const stock = {
+            /*
+             * Create a webhook in the selected channel.
+             *
+             * The bot needs Manage Webhooks permission.
+             */
+            const webhook =
+                await channel.createWebhook({
+                    name: 'Cosmic Robux Stock',
+                });
+
+            const webhookClient =
+                new WebhookClient({
+                    id: webhook.id,
+                    token: webhook.token,
+                });
+
+            /*
+             * Send the initial stock embed through
+             * the webhook.
+             */
+            const message =
+                await webhookClient.send({
+                    embeds: [
+                        createDefaultEmbed(amount),
+                    ],
+                    wait: true,
+                });
+
+            /*
+             * Save everything required to update the
+             * same webhook message later.
+             */
+            data[guildId] = {
                 amount,
                 channelId: channel.id,
-                messageId: null,
+                messageId: message.id,
+
+                webhookId: webhook.id,
+                webhookToken: webhook.token,
+
                 updatedAt: Date.now(),
             };
-
-            const message = await channel.send({
-                embeds: [
-                    createDefaultEmbed(stock),
-                ],
-            });
-
-            stock.messageId = message.id;
-
-            data[guildId] = stock;
 
             saveData(data);
 
             return interaction.reply({
                 content:
                     `✅ Robux stock has been set up in ${channel} with **${formatRobux(amount)} Robux**.\n\n` +
-                    `💡 You can now customize the embed using Discohook.`,
+                    `🎨 The message is now ready to customize with Discohook.\n\n` +
+                    `⚠️ Don't delete the webhook from the channel settings.`,
                 ephemeral: true,
             });
         }
@@ -256,36 +311,39 @@ export default {
             });
         }
 
-        // =========================
-        // FIND CHANNEL
-        // =========================
-
-        const channel =
-            await interaction.guild.channels
-                .fetch(stock.channelId)
-                .catch(() => null);
-
-        if (!channel) {
+        if (
+            !stock.webhookId ||
+            !stock.webhookToken ||
+            !stock.messageId
+        ) {
             return interaction.reply({
                 content:
-                    '❌ I could not find the stock channel. Please run `/robux setup` again.',
+                    '❌ This Robux stock was created with the old system. Please run `/robux setup` again.',
                 ephemeral: true,
             });
         }
 
+        const webhookClient =
+            new WebhookClient({
+                id: stock.webhookId,
+                token: stock.webhookToken,
+            });
+
         // =========================
-        // FIND MESSAGE
+        // GET CURRENT MESSAGE
         // =========================
 
-        const message =
-            await channel.messages
-                .fetch(stock.messageId)
-                .catch(() => null);
+        let message;
 
-        if (!message) {
+        try {
+            message =
+                await webhookClient.fetchMessage(
+                    stock.messageId
+                );
+        } catch {
             return interaction.reply({
                 content:
-                    '❌ I could not find the stock message. Please run `/robux setup` again.',
+                    '❌ I could not find the Robux stock message. Please run `/robux setup` again.',
                 ephemeral: true,
             });
         }
@@ -301,24 +359,23 @@ export default {
             stock.amount += amount;
             stock.updatedAt = Date.now();
 
-            /*
-             * Get the CURRENT embed from Discord.
-             *
-             * This is what allows you to customize
-             * the embed externally without the bot
-             * resetting your design.
-             */
+            const currentEmbeds =
+                message.embeds.map(embed =>
+                    embed.toJSON()
+                );
+
             const updatedEmbeds =
-                updateStockInEmbed(
-                    message.embeds.map(embed =>
-                        embed.toJSON()
-                    ),
+                updateStockEmbed(
+                    currentEmbeds,
                     stock.amount
                 );
 
-            await message.edit({
-                embeds: updatedEmbeds,
-            });
+            await webhookClient.editMessage(
+                stock.messageId,
+                {
+                    embeds: updatedEmbeds,
+                }
+            );
 
             saveData(data);
 
@@ -349,17 +406,23 @@ export default {
             stock.amount -= amount;
             stock.updatedAt = Date.now();
 
+            const currentEmbeds =
+                message.embeds.map(embed =>
+                    embed.toJSON()
+                );
+
             const updatedEmbeds =
-                updateStockInEmbed(
-                    message.embeds.map(embed =>
-                        embed.toJSON()
-                    ),
+                updateStockEmbed(
+                    currentEmbeds,
                     stock.amount
                 );
 
-            await message.edit({
-                embeds: updatedEmbeds,
-            });
+            await webhookClient.editMessage(
+                stock.messageId,
+                {
+                    embeds: updatedEmbeds,
+                }
+            );
 
             saveData(data);
 
