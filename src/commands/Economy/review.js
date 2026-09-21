@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REVIEW_ROLE_ID = '1551509893947850835';
+const REVIEW_CHANNEL_ID = '1551509896246206544';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -99,19 +100,43 @@ export default {
             .setColor(0xd81cde)
             .setDescription(
                 `${'⭐'.repeat(stars)}\n\n` +
-                `**${interaction.user.username}**\n` +
-                `Reviewed by ${interaction.user}`
-            );
+                `**Reviewed by:** ${interaction.user}`
+            )
+            .setTimestamp();
 
-        await interaction.reply({
-            embeds: [embed],
-        });
+        const reviewChannel =
+            await interaction.guild.channels.fetch(REVIEW_CHANNEL_ID);
 
-        // Only customers are saved as having reviewed.
-        // Admins can review unlimited times.
+        if (!reviewChannel || !reviewChannel.isTextBased()) {
+            return interaction.reply({
+                content: 'The review channel could not be found.',
+                ephemeral: true,
+            });
+        }
+
+        try {
+            await reviewChannel.send({
+                embeds: [embed],
+            });
+        } catch (error) {
+            console.error('[Review] Failed to send review:', error);
+
+            return interaction.reply({
+                content:
+                    'I could not send your review. Please check my permissions in the review channel.',
+                ephemeral: true,
+            });
+        }
+
+        // Save customer review permanently
         if (!isAdmin) {
             reviews[guildId].push(userId);
             saveReviews(reviews);
         }
+
+        return interaction.reply({
+            content: 'Your review has been submitted!',
+            ephemeral: true,
+        });
     },
 };
