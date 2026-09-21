@@ -102,18 +102,6 @@ export default {
         // Literal stars
         const starRating = '⭐'.repeat(stars);
 
-        const embed = new EmbedBuilder()
-            .setColor(0xd81cde)
-
-            // Photo first
-            .setImage(REVIEW_IMAGE_URL)
-
-            // Stars + reviewer underneath
-            .setDescription(
-                `${starRating}\n\n` +
-                `**Reviewed by:** ${interaction.user}`
-            );
-
         let reviewChannel;
 
         try {
@@ -121,10 +109,7 @@ export default {
                 REVIEW_CHANNEL_ID
             );
         } catch (error) {
-            console.error(
-                '[Review] Failed to fetch review channel:',
-                error
-            );
+            console.error('[Review] Channel fetch error:', error);
 
             return interaction.reply({
                 content: 'The review channel could not be found.',
@@ -140,6 +125,19 @@ export default {
         }
 
         try {
+            // 1. PHOTO FIRST
+            await reviewChannel.send({
+                content: REVIEW_IMAGE_URL,
+            });
+
+            // 2. STARS + NAME UNDERNEATH
+            const embed = new EmbedBuilder()
+                .setColor(0xd81cde)
+                .setDescription(
+                    `${starRating}\n\n` +
+                    `**Reviewed by:** ${interaction.user}`
+                );
+
             await reviewChannel.send({
                 embeds: [embed],
             });
@@ -148,12 +146,12 @@ export default {
 
             return interaction.reply({
                 content:
-                    'I could not send your review. Please check my permissions in the review channel.',
+                    'I could not send the review. Please check my permissions in the review channel.',
                 ephemeral: true,
             });
         }
 
-        // Customers are saved permanently.
+        // Customers are permanently marked as reviewed.
         // Admins can review unlimited times.
         if (!isAdmin) {
             reviews[guildId].push(userId);
