@@ -3,15 +3,14 @@ import {
     PermissionFlagsBits,
     ChannelType,
 } from 'discord.js';
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EmbedBuilder } from 'discord.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Storage file
 const dataDir = path.join(__dirname, '../../../data');
 const dataFile = path.join(dataDir, 'robux-stock.json');
 
@@ -21,10 +20,7 @@ function ensureStorage() {
     }
 
     if (!fs.existsSync(dataFile)) {
-        fs.writeFileSync(
-            dataFile,
-            JSON.stringify({}, null, 2)
-        );
+        fs.writeFileSync(dataFile, '{}');
     }
 }
 
@@ -51,23 +47,78 @@ function formatRobux(amount) {
     return Number(amount).toLocaleString('en-US');
 }
 
-function createStockEmbed(stock) {
-    return new EmbedBuilder()
-        .setColor('#d81cde')
-        .setTitle('💎 Cosmic Robux Stock')
-        .setDescription(
+/*
+ * Creates the default embed.
+ *
+ * IMPORTANT:
+ * After you customize the message through Discohook,
+ * the bot will preserve the embed instead of rebuilding it.
+ */
+function createDefaultEmbed(stock) {
+    return {
+        color: 0xd81cde,
+        title: '💎 Cosmic Robux Stock',
+        description:
             `### 🟢 ${formatRobux(stock.amount)} Robux Available\n\n` +
-            `📦 **Status:** ${stock.amount > 0 ? 'In Stock' : 'Out of Stock'}`
-        )
-        .addFields({
-            name: '🔄 Last Updated',
-            value: `<t:${Math.floor(stock.updatedAt / 1000)}:R>`,
-            inline: true,
-        })
-        .setFooter({
+            `📦 **Status:** ${stock.amount > 0 ? 'In Stock' : 'Out of Stock'}`,
+        footer: {
             text: 'Cosmic Market',
-        })
-        .setTimestamp();
+        },
+        timestamp: new Date().toISOString(),
+    };
+}
+
+/*
+ * Updates ONLY the stock information inside the existing embed.
+ *
+ * Everything else — title, color, images, fields, footer, etc.
+ * — is preserved.
+ */
+function updateStockInEmbed(existingEmbeds, amount) {
+    if (!existingEmbeds || existingEmbeds.length === 0) {
+        return [createDefaultEmbed({
+            amount,
+        })];
+    }
+
+    const embed = structuredClone(existingEmbeds[0]);
+
+    const stockText =
+        `### 🟢 ${formatRobux(amount)} Robux Available\n\n` +
+        `📦 **Status:** ${amount > 0 ? 'In Stock' : 'Out of Stock'}`;
+
+    /*
+     * If the description contains our old stock text,
+     * replace it while preserving the rest of the description.
+     */
+    if (typeof embed.description === 'string') {
+        const stockRegex =
+            /### 🟢 [\d,]+ Robux Available\n\n📦 \*\*Status:\*\* (?:In Stock|Out of Stock)/;
+
+        if (stockRegex.test(embed.description)) {
+            embed.description = embed.description.replace(
+                stockRegex,
+                stockText
+            );
+        } else {
+            /*
+             * If Discohook changed the description completely,
+             * don't destroy it. Add the current stock underneath.
+             */
+            embed.description =
+                `${embed.description}\n\n${stockText}`;
+        }
+    } else {
+        embed.description = stockText;
+    }
+
+    /*
+     * Update Discord's timestamp so users can see
+     * when the stock was changed.
+     */
+    embed.timestamp = new Date().toISOString();
+
+    return [embed];
 }
 
 export default {
@@ -77,6 +128,7 @@ export default {
         .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
         .setDMPermission(false)
 
+        // /robux setup
         .addSubcommand(subcommand =>
             subcommand
                 .setName('setup')
@@ -97,6 +149,7 @@ export default {
                 )
         )
 
+        // /robux add
         .addSubcommand(subcommand =>
             subcommand
                 .setName('add')
@@ -110,6 +163,7 @@ export default {
                 )
         )
 
+        // /robux remove
         .addSubcommand(subcommand =>
             subcommand
                 .setName('remove')
@@ -123,6 +177,7 @@ export default {
                 )
         )
 
+        // /robux stock
         .addSubcommand(subcommand =>
             subcommand
                 .setName('stock')
@@ -136,10 +191,15 @@ export default {
         const guildId = interaction.guildId;
         const subcommand = interaction.options.getSubcommand();
 
-        // Only server managers can use the commands
-        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+        // Permission check
+        if (
+            !interaction.memberPermissions?.has(
+                PermissionFlagsBits.ManageGuild
+            )
+        ) {
             return interaction.reply({
-                content: '❌ You do not have permission to manage the Robux stock.',
+                content:
+                    '❌ You do not have permission to manage the Robux stock.',
                 ephemeral: true,
             });
         }
@@ -149,8 +209,11 @@ export default {
         // =========================
 
         if (subcommand === 'setup') {
-            const channel = interaction.options.getChannel('channel');
-            const amount = interaction.options.getInteger('amount');
+            const channel =
+                interaction.options.getChannel('channel');
+
+            const amount =
+                interaction.options.getInteger('amount');
 
             const stock = {
                 amount,
@@ -160,52 +223,69 @@ export default {
             };
 
             const message = await channel.send({
-                embeds: [createStockEmbed(stock)],
+                embeds: [
+                    createDefaultEmbed(stock),
+                ],
             });
 
             stock.messageId = message.id;
 
             data[guildId] = stock;
+
             saveData(data);
 
             return interaction.reply({
-                content: `✅ Robux stock has been set up in ${channel} with **${formatRobux(amount)} Robux**.`,
+                content:
+                    `✅ Robux stock has been set up in ${channel} with **${formatRobux(amount)} Robux**.\n\n` +
+                    `💡 You can now customize the embed using Discohook.`,
                 ephemeral: true,
             });
         }
 
-        // Check setup
+        // =========================
+        // CHECK SETUP
+        // =========================
+
         const stock = data[guildId];
 
         if (!stock) {
             return interaction.reply({
-                content: '❌ Robux stock has not been set up yet. Use `/robux setup` first.',
+                content:
+                    '❌ Robux stock has not been set up yet. Use `/robux setup` first.',
                 ephemeral: true,
             });
         }
 
         // =========================
-        // FIND EXISTING MESSAGE
+        // FIND CHANNEL
         // =========================
 
-        const channel = await interaction.guild.channels
-            .fetch(stock.channelId)
-            .catch(() => null);
+        const channel =
+            await interaction.guild.channels
+                .fetch(stock.channelId)
+                .catch(() => null);
 
         if (!channel) {
             return interaction.reply({
-                content: '❌ I could not find the stock channel. Please run `/robux setup` again.',
+                content:
+                    '❌ I could not find the stock channel. Please run `/robux setup` again.',
                 ephemeral: true,
             });
         }
 
-        const message = await channel.messages
-            .fetch(stock.messageId)
-            .catch(() => null);
+        // =========================
+        // FIND MESSAGE
+        // =========================
+
+        const message =
+            await channel.messages
+                .fetch(stock.messageId)
+                .catch(() => null);
 
         if (!message) {
             return interaction.reply({
-                content: '❌ I could not find the stock message. Please run `/robux setup` again.',
+                content:
+                    '❌ I could not find the stock message. Please run `/robux setup` again.',
                 ephemeral: true,
             });
         }
@@ -215,19 +295,37 @@ export default {
         // =========================
 
         if (subcommand === 'add') {
-            const amount = interaction.options.getInteger('amount');
+            const amount =
+                interaction.options.getInteger('amount');
 
             stock.amount += amount;
             stock.updatedAt = Date.now();
 
-            saveData(data);
+            /*
+             * Get the CURRENT embed from Discord.
+             *
+             * This is what allows you to customize
+             * the embed externally without the bot
+             * resetting your design.
+             */
+            const updatedEmbeds =
+                updateStockInEmbed(
+                    message.embeds.map(embed =>
+                        embed.toJSON()
+                    ),
+                    stock.amount
+                );
 
             await message.edit({
-                embeds: [createStockEmbed(stock)],
+                embeds: updatedEmbeds,
             });
 
+            saveData(data);
+
             return interaction.reply({
-                content: `✅ Added **${formatRobux(amount)} Robux**.\nNew stock: **${formatRobux(stock.amount)} Robux**`,
+                content:
+                    `✅ Added **${formatRobux(amount)} Robux**.\n` +
+                    `💰 New stock: **${formatRobux(stock.amount)} Robux**`,
                 ephemeral: true,
             });
         }
@@ -237,11 +335,13 @@ export default {
         // =========================
 
         if (subcommand === 'remove') {
-            const amount = interaction.options.getInteger('amount');
+            const amount =
+                interaction.options.getInteger('amount');
 
             if (amount > stock.amount) {
                 return interaction.reply({
-                    content: `❌ You only have **${formatRobux(stock.amount)} Robux** in stock.`,
+                    content:
+                        `❌ You only have **${formatRobux(stock.amount)} Robux** in stock.`,
                     ephemeral: true,
                 });
             }
@@ -249,14 +349,24 @@ export default {
             stock.amount -= amount;
             stock.updatedAt = Date.now();
 
-            saveData(data);
+            const updatedEmbeds =
+                updateStockInEmbed(
+                    message.embeds.map(embed =>
+                        embed.toJSON()
+                    ),
+                    stock.amount
+                );
 
             await message.edit({
-                embeds: [createStockEmbed(stock)],
+                embeds: updatedEmbeds,
             });
 
+            saveData(data);
+
             return interaction.reply({
-                content: `✅ Removed **${formatRobux(amount)} Robux**.\nNew stock: **${formatRobux(stock.amount)} Robux**`,
+                content:
+                    `✅ Removed **${formatRobux(amount)} Robux**.\n` +
+                    `💰 New stock: **${formatRobux(stock.amount)} Robux**`,
                 ephemeral: true,
             });
         }
@@ -267,7 +377,9 @@ export default {
 
         if (subcommand === 'stock') {
             return interaction.reply({
-                embeds: [createStockEmbed(stock)],
+                embeds: message.embeds.map(embed =>
+                    embed.toJSON()
+                ),
                 ephemeral: true,
             });
         }
