@@ -11,6 +11,9 @@ import { fileURLToPath } from 'node:url';
 const REVIEW_ROLE_ID = '1551509893947850835';
 const REVIEW_CHANNEL_ID = '1551509896246206544';
 
+const REVIEW_IMAGE_URL =
+    'https://cdn.discordapp.com/attachments/1551509897345237054/1551595003162271744/Review_20260921_160421_0000.png?ex=6ab28af3&is=6ab13973&hm=151bb99cc5f3fce0955d5a0a57c9da0dae03d9fdb46570cd64ae714c95acdbc9&';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -79,6 +82,7 @@ export default {
         }
 
         const reviews = loadReviews();
+
         const guildId = interaction.guild.id;
         const userId = interaction.user.id;
 
@@ -99,17 +103,34 @@ export default {
         const embed = new EmbedBuilder()
             .setColor(0xd81cde)
             .setDescription(
-                `${'⭐'.repeat(stars)}\n\n` +
+                `**${stars}/5 Stars**\n` +
+                `${'⭐'.repeat(stars)}${'☆'.repeat(5 - stars)}\n\n` +
                 `**Reviewed by:** ${interaction.user}`
             )
+            .setImage(REVIEW_IMAGE_URL)
             .setTimestamp();
 
-        const reviewChannel =
-            await interaction.guild.channels.fetch(REVIEW_CHANNEL_ID);
+        let reviewChannel;
+
+        try {
+            reviewChannel = await interaction.guild.channels.fetch(
+                REVIEW_CHANNEL_ID
+            );
+        } catch (error) {
+            console.error(
+                '[Review] Failed to fetch review channel:',
+                error
+            );
+
+            return interaction.reply({
+                content: 'The review channel could not be found.',
+                ephemeral: true,
+            });
+        }
 
         if (!reviewChannel || !reviewChannel.isTextBased()) {
             return interaction.reply({
-                content: 'The review channel could not be found.',
+                content: 'The review channel is invalid.',
                 ephemeral: true,
             });
         }
@@ -128,7 +149,8 @@ export default {
             });
         }
 
-        // Save customer review permanently
+        // Save customer review permanently.
+        // Admins can review unlimited times.
         if (!isAdmin) {
             reviews[guildId].push(userId);
             saveReviews(reviews);
