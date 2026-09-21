@@ -1,6 +1,5 @@
 import {
     SlashCommandBuilder,
-    PermissionFlagsBits,
     EmbedBuilder,
 } from 'discord.js';
 
@@ -9,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REVIEW_ROLE_ID = '1551509893947850835';
+const PLUS_ROLE_ID = '1551509894069223464';
 const REVIEW_CHANNEL_ID = '1551509896246206544';
 
 const REVIEW_IMAGE_URL =
@@ -44,17 +44,49 @@ function saveReviews(data) {
     fs.writeFileSync(dataFile, JSON.stringify(data, null, 2));
 }
 
+function getStars(amount) {
+    return '★'.repeat(amount) + '☆'.repeat(5 - amount);
+}
+
 export default {
     data: new SlashCommandBuilder()
         .setName('review')
-        .setDescription('Leave a review')
-        .addIntegerOption(option =>
-            option
-                .setName('stars')
-                .setDescription('Choose your rating')
-                .setMinValue(1)
-                .setMaxValue(5)
-                .setRequired(true)
+        .setDescription('Review commands')
+
+        // /review normal
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('normal')
+                .setDescription('Leave a review')
+                .addIntegerOption(option =>
+                    option
+                        .setName('stars')
+                        .setDescription('Choose your rating')
+                        .setMinValue(1)
+                        .setMaxValue(5)
+                        .setRequired(true)
+                )
+        )
+
+        // /review plus
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('plus')
+                .setDescription('Create a review for another user')
+                .addUserOption(option =>
+                    option
+                        .setName('user')
+                        .setDescription('User to display as the reviewer')
+                        .setRequired(true)
+                )
+                .addIntegerOption(option =>
+                    option
+                        .setName('stars')
+                        .setDescription('Choose the rating')
+                        .setMinValue(1)
+                        .setMaxValue(5)
+                        .setRequired(true)
+                )
         ),
 
     category: 'Economy',
@@ -67,99 +99,201 @@ export default {
             });
         }
 
-        const isAdmin = interaction.member.permissions.has(
-            PermissionFlagsBits.Administrator
-        );
-
-        const hasReviewRole =
-            interaction.member.roles.cache.has(REVIEW_ROLE_ID);
-
-        if (!isAdmin && !hasReviewRole) {
-            return interaction.reply({
-                content: 'You do not have permission to leave a review.',
-                ephemeral: true,
-            });
-        }
+        const subcommand = interaction.options.getSubcommand();
 
         const reviews = loadReviews();
         const guildId = interaction.guild.id;
-        const userId = interaction.user.id;
 
         if (!reviews[guildId]) {
             reviews[guildId] = [];
         }
 
-        // Customers can only review once
-        if (!isAdmin && reviews[guildId].includes(userId)) {
-            return interaction.reply({
-                content: 'You have already submitted a review.',
-                ephemeral: true,
-            });
-        }
+        // =========================================================
+        // /review plus
+        // =========================================================
 
-        const stars = interaction.options.getInteger('stars');
+        if (subcommand === 'plus') {
+            const hasPlusRole =
+                interaction.member.roles.cache.has(PLUS_ROLE_ID);
 
-        // ★★★★★ = 5
-        // ★★★★☆ = 4
-        // ★★★☆☆ = 3
-        // ★★☆☆☆ = 2
-        // ★☆☆☆☆ = 1
-        const starRating = '★'.repeat(stars) + '☆'.repeat(5 - stars);
+            if (!hasPlusRole) {
+                return interaction.reply({
+                    content:
+                        'You do not have permission to use this command.',
+                    ephemeral: true,
+                });
+            }
 
-        const embed = new EmbedBuilder()
-            .setColor(0xd81cde)
-            .setDescription(
-                `${starRating}\n\n` +
-                `**Reviewed by:** ${interaction.user}`
-            )
-            .setImage(REVIEW_IMAGE_URL);
+            const targetUser = interaction.options.getUser('user');
+            const stars = interaction.options.getInteger('stars');
 
-        let reviewChannel;
+            // Give target the customer role
+            try {
+                const member = await interaction.guild.members.fetch(
+                    targetUser.id
+                );
 
-        try {
-            reviewChannel = await interaction.guild.channels.fetch(
-                REVIEW_CHANNEL_ID
-            );
-        } catch (error) {
-            console.error('[Review] Failed to fetch channel:', error);
+                if (!member.roles.cache.has(REVIEW_ROLE_ID)) {
+                    await member.roles.add(REVIEW_ROLE_ID);
+                }
+            } catch (error) {
+                console.error('[Review Plus] Role error:', error);
 
-            return interaction.reply({
-                content: 'The review channel could not be found.',
-                ephemeral: true,
-            });
-        }
+                return interaction.reply({
+                    content:
+                        'I could not give that user the customer role. Make sure I have Manage Roles and my bot role is above the customer role.',
+                    ephemeral: true,
+                });
+            }
 
-        if (!reviewChannel || !reviewChannel.isTextBased()) {
-            return interaction.reply({
-                content: 'The review channel is invalid.',
-                ephemeral: true,
-            });
-        }
+            // Mark target as having reviewed
+            if (!reviews[guildId].includes(targetUser.id)) {
+                reviews[guildId].push(targetUser.id);
+                saveReviews(reviews);
+            }
 
-        try {
-            await reviewChannel.send({
-                embeds: [embed],
-            });
-        } catch (error) {
-            console.error('[Review] Failed to send review:', error);
+            let reviewChannel;
+
+            try {
+                reviewChannel = await interaction.guild.channels.fetch(
+                    REVIEW_CHANNEL_ID
+                );
+            } catch (error) {
+                console.error('[Review Plus] Channel error:', error);
+
+                return interaction.reply({
+                    content: 'The review channel could not be found.',
+                    ephemeral: true,
+                });
+            }
+
+            if (!reviewChannel || !reviewChannel.isTextBased()) {
+                return interaction.reply({
+                    content: 'The review channel is invalid.',
+                    ephemeral: true,
+                });
+            }
+
+            const embed = new EmbedBuilder()
+                .setColor(0xd81cde)
+                .setDescription(
+                    `${getStars(stars)}\n\n` +
+                    `**Reviewed by:** ${targetUser}`
+                )
+                .setImage(REVIEW_IMAGE_URL);
+
+            try {
+                await reviewChannel.send({
+                    embeds: [embed],
+                });
+            } catch (error) {
+                console.error('[Review Plus] Send error:', error);
+
+                return interaction.reply({
+                    content:
+                        'I could not send the review. Check my permissions in the review channel.',
+                    ephemeral: true,
+                });
+            }
 
             return interaction.reply({
                 content:
-                    'I could not send your review. Please check my permissions in the review channel.',
+                    `Fake review created for ${targetUser}. They have been given the customer role and can no longer submit another review.`,
                 ephemeral: true,
             });
         }
 
-        // Customers are permanently marked as reviewed.
-        // Admins can review unlimited times.
-        if (!isAdmin) {
-            reviews[guildId].push(userId);
-            saveReviews(reviews);
-        }
+        // =========================================================
+        // /review normal
+        // =========================================================
 
-        return interaction.reply({
-            content: 'Your review has been submitted!',
-            ephemeral: true,
-        });
+        if (subcommand === 'normal') {
+            const isAdmin = interaction.member.permissions.has(
+                'Administrator'
+            );
+
+            const hasReviewRole =
+                interaction.member.roles.cache.has(REVIEW_ROLE_ID);
+
+            if (!hasReviewRole && !isAdmin) {
+                return interaction.reply({
+                    content:
+                        'You do not have permission to leave a review.',
+                    ephemeral: true,
+                });
+            }
+
+            const userId = interaction.user.id;
+
+            // Customer can only review once
+            if (!isAdmin && reviews[guildId].includes(userId)) {
+                return interaction.reply({
+                    content:
+                        'You have already submitted a review.',
+                    ephemeral: true,
+                });
+            }
+
+            const stars = interaction.options.getInteger('stars');
+
+            let reviewChannel;
+
+            try {
+                reviewChannel = await interaction.guild.channels.fetch(
+                    REVIEW_CHANNEL_ID
+                );
+            } catch (error) {
+                console.error('[Review] Channel error:', error);
+
+                return interaction.reply({
+                    content:
+                        'The review channel could not be found.',
+                    ephemeral: true,
+                });
+            }
+
+            if (!reviewChannel || !reviewChannel.isTextBased()) {
+                return interaction.reply({
+                    content:
+                        'The review channel is invalid.',
+                    ephemeral: true,
+                });
+            }
+
+            const embed = new EmbedBuilder()
+                .setColor(0xd81cde)
+                .setDescription(
+                    `${getStars(stars)}\n\n` +
+                    `**Reviewed by:** ${interaction.user}`
+                )
+                .setImage(REVIEW_IMAGE_URL);
+
+            try {
+                await reviewChannel.send({
+                    embeds: [embed],
+                });
+            } catch (error) {
+                console.error('[Review] Send error:', error);
+
+                return interaction.reply({
+                    content:
+                        'I could not send your review. Please check my permissions in the review channel.',
+                    ephemeral: true,
+                });
+            }
+
+            // Save customer permanently
+            // Admins can review unlimited times
+            if (!isAdmin) {
+                reviews[guildId].push(userId);
+                saveReviews(reviews);
+            }
+
+            return interaction.reply({
+                content:
+                    'Your review has been submitted!',
+                ephemeral: true,
+            });
+        }
     },
 };
