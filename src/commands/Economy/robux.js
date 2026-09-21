@@ -2,6 +2,7 @@ import {
     SlashCommandBuilder,
     PermissionFlagsBits,
     ChannelType,
+    EmbedBuilder,
 } from 'discord.js';
 
 import fs from 'node:fs';
@@ -57,8 +58,12 @@ function formatRobux(amount) {
     return Number(amount).toLocaleString('de-DE');
 }
 
-function getStockText(amount) {
-    return `Robux Available: ${formatRobux(amount)}`;
+function createStockEmbed(amount) {
+    return new EmbedBuilder()
+        .setDescription(
+            `Robux Stock • ${formatRobux(amount)}`
+        )
+        .setColor(0xd81cde);
 }
 
 // ==========================================
@@ -183,9 +188,11 @@ export default {
 
             try {
                 const message =
-                    await channel.send(
-                        getStockText(amount)
-                    );
+                    await channel.send({
+                        embeds: [
+                            createStockEmbed(amount),
+                        ],
+                    });
 
                 data[guildId] = {
                     amount,
@@ -210,7 +217,7 @@ export default {
 
                 return interaction.reply({
                     content:
-                        'I could not send the stock message. Make sure I have Send Messages permission in that channel.',
+                        'I could not send the stock message. Make sure I have Send Messages and Embed Links permission in that channel.',
                     ephemeral: true,
                 });
             }
@@ -284,9 +291,13 @@ export default {
             stock.amount += amount;
             stock.updatedAt = Date.now();
 
-            await message.edit(
-                getStockText(stock.amount)
-            );
+            await message.edit({
+                embeds: [
+                    createStockEmbed(
+                        stock.amount
+                    ),
+                ],
+            });
 
             saveData(data);
 
@@ -318,9 +329,13 @@ export default {
             stock.amount -= amount;
             stock.updatedAt = Date.now();
 
-            await message.edit(
-                getStockText(stock.amount)
-            );
+            await message.edit({
+                embeds: [
+                    createStockEmbed(
+                        stock.amount
+                    ),
+                ],
+            });
 
             saveData(data);
 
@@ -337,8 +352,11 @@ export default {
 
         if (subcommand === 'stock') {
             return interaction.reply({
-                content:
-                    getStockText(stock.amount),
+                embeds: [
+                    createStockEmbed(
+                        stock.amount
+                    ),
+                ],
                 ephemeral: true,
             });
         }
