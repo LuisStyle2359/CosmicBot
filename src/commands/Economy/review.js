@@ -99,8 +99,20 @@ export default {
 
         const stars = interaction.options.getInteger('stars');
 
-        // Literal stars
-        const starRating = '⭐'.repeat(stars);
+        // ★★★★★ = 5
+        // ★★★★☆ = 4
+        // ★★★☆☆ = 3
+        // ★★☆☆☆ = 2
+        // ★☆☆☆☆ = 1
+        const starRating = '★'.repeat(stars) + '☆'.repeat(5 - stars);
+
+        const embed = new EmbedBuilder()
+            .setColor(0xd81cde)
+            .setDescription(
+                `${starRating}\n\n` +
+                `**Reviewed by:** ${interaction.user}`
+            )
+            .setImage(REVIEW_IMAGE_URL);
 
         let reviewChannel;
 
@@ -109,7 +121,7 @@ export default {
                 REVIEW_CHANNEL_ID
             );
         } catch (error) {
-            console.error('[Review] Channel fetch error:', error);
+            console.error('[Review] Failed to fetch channel:', error);
 
             return interaction.reply({
                 content: 'The review channel could not be found.',
@@ -125,19 +137,6 @@ export default {
         }
 
         try {
-            // 1. PHOTO FIRST
-            await reviewChannel.send({
-                content: REVIEW_IMAGE_URL,
-            });
-
-            // 2. STARS + NAME UNDERNEATH
-            const embed = new EmbedBuilder()
-                .setColor(0xd81cde)
-                .setDescription(
-                    `${starRating}\n\n` +
-                    `**Reviewed by:** ${interaction.user}`
-                );
-
             await reviewChannel.send({
                 embeds: [embed],
             });
@@ -146,7 +145,7 @@ export default {
 
             return interaction.reply({
                 content:
-                    'I could not send the review. Please check my permissions in the review channel.',
+                    'I could not send your review. Please check my permissions in the review channel.',
                 ephemeral: true,
             });
         }
